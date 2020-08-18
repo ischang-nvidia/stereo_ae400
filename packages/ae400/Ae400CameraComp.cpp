@@ -288,30 +288,32 @@ void AE400Camera::tick() {
       if (acqtime == 0) {
         acqtime = getAdjustedTimeStamp(color_frame.get_timestamp(), impl_->timestamp_info);
       }
-      auto proto_color = tx_color().initProto();
-      proto_color.setColorSpace(ColorCameraProto::ColorSpace::RGB);
 
-      ToProto(ToPinhole(color_frame), proto_color.initPinhole());
-      ToProto(std::move(ToColorImage(color_frame)), proto_color.initImage(), tx_color().buffers());
+      auto proto_color = tx_color().initProto();
+      auto proto_color_intrinsics = tx_color_intrinsics().initProto().initPinhole();
+
+      ToProto(std::move(ToColorImage(color_frame)), proto_color, tx_color().buffers());
+      ToProto(ToPinhole(color_frame), proto_color_intrinsics);
     }
 
     if (ir_on) {
       // Obtain the left ir frame
       const rs2::video_frame left_frame = frames.get_infrared_frame(kLeftIrStreamId);
+
       auto proto_left = tx_left_ir().initProto();
-      proto_left.setColorSpace(ColorCameraProto::ColorSpace::GRAYSCALE);
+      auto proto_left_intrinsics = tx_left_ir_intrinsics().initProto().initPinhole();
 
-      ToProto(ToPinhole(left_frame), proto_left.initPinhole());
-      ToProto(std::move(ToGreyImage(left_frame)), proto_left.initImage(), tx_left_ir().buffers());
-
+      ToProto(std::move(ToGreyImage(left_frame)), proto_left, tx_left_ir().buffers());
+      ToProto(ToPinhole(left_frame), proto_left_intrinsics);
+      
       // Obtain the right ir frame
       const rs2::video_frame right_frame = frames.get_infrared_frame(kRightIrStreamId);
-      auto proto_right = tx_right_ir().initProto();
-      proto_right.setColorSpace(ColorCameraProto::ColorSpace::GRAYSCALE);
 
-      ToProto(ToPinhole(right_frame), proto_right.initPinhole());
-      ToProto(std::move(ToGreyImage(right_frame)), proto_right.initImage(),
-              tx_right_ir().buffers());
+      auto proto_right = tx_right_ir().initProto();
+      auto proto_right_intrinsics = tx_right_ir_intrinsics().initProto().initPinhole();
+
+      ToProto(std::move(ToGreyImage(right_frame)), proto_right, tx_right_ir().buffers());
+      ToProto(ToPinhole(right_frame), proto_right_intrinsics);
 
       // SVIO tracker needs to recieve the actual IR frame timestamps as a hint
       // for the prediction algorithm to understand the temporal relationship
@@ -320,7 +322,9 @@ void AE400Camera::tick() {
       const int64_t ir_acqtime =
          getAdjustedTimeStamp(left_frame.get_timestamp(), impl_->ir_timestamp);
       tx_left_ir().publish(ir_acqtime);
+      tx_left_ir_intrinsics().publish(ir_acqtime);
       tx_right_ir().publish(ir_acqtime);
+      tx_right_ir_intrinsics().publish(ir_acqtime);
     }
 
     // Obtain and publish the depth image
@@ -338,15 +342,17 @@ void AE400Camera::tick() {
       ConvertUi16ToF32(depth_image_view, depth_image, 0.001);
 
       auto proto_depth = tx_depth().initProto();
-      ToProto(ToPinhole(depth_frame), proto_depth.initPinhole());
-      ToProto(std::move(depth_image), proto_depth.initDepthImage(), tx_depth().buffers());
-      proto_depth.setMinDepth(0.0);
-      proto_depth.setMaxDepth(10.0);
+      auto proto_depth_intrinsics = tx_depth_intrinsics().initProto().initPinhole();
+      
+      ToProto(ToPinhole(depth_frame), proto_depth_intrinsics);
+      ToProto(std::move(depth_image), proto_depth, tx_depth().buffers());
       tx_depth().publish(acqtime);
+      tx_depth_intrinsics().publish(acqtime);
     }
 
     if (color_on) {
       tx_color().publish(acqtime);
+      tx_color_intrinsics().publish(acqtime);
     }
   } catch (const rs2::error& e) {
     reportFailure("RealSense error calling %s(%s): %s", e.get_failed_function().c_str(),
